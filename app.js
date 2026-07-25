@@ -182,6 +182,7 @@
     editor.innerHTML = n ? (n.html || EMPTY_DOC) : '';
     loading = false;
     updateBlankClass();
+    countDoc();
     updateMeta();
     if (n) editor.focus();
     syncToolbar();   // otherwise the previous note's active marks stay lit
@@ -229,6 +230,7 @@
     unwrapLists();
     flush();
     updateBlankClass();
+    countDoc();
     updateMeta();
     renderTabs();
     renderTree();
@@ -240,11 +242,83 @@
     editor.classList.toggle('blank', empty);
   }
 
+  /* --------------------------------------------------------------- counts */
+
+  // Blocks that render on their own line. A block containing another block (a
+  // <ul>, or a <blockquote> wrapping a <p>) isn't a line itself — its children
+  // are — so only the innermost ones count.
+  var BLOCKS = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,div';
+
+  function leafBlocks(root) {
+    return Array.prototype.filter.call(root.querySelectorAll(BLOCKS), function (el) {
+      return !el.querySelector(BLOCKS);
+    });
+  }
+
+  function lineTexts(root) {
+    var out = leafBlocks(root).map(function (el) { return el.textContent; });
+    // A note with no block markup at all is still one line.
+    if (!out.length) out.push(root.textContent);
+    return out;
+  }
+
+  // `text` keeps its newlines so words can't fuse across a line break; they are
+  // stripped for the character count so line breaks aren't counted as typing.
+  function statsOf(text, lineCount) {
+    return {
+      words: (text.trim().match(/\S+/g) || []).length,
+      chars: text.replace(/\r?\n/g, '').length,
+      lines: lineCount
+    };
+  }
+
+  function plural(n, noun) { return n + ' ' + noun + (n === 1 ? '' : 's'); }
+
+  function phrase(s) {
+    return plural(s.words, 'word') + ' · ' +
+           plural(s.chars, 'character') + ' · ' +
+           plural(s.lines, 'line');
+  }
+
+  // Recomputed only when the text changes; a caret move shouldn't re-walk the
+  // whole document.
+  var docStats = { words: 0, chars: 0, lines: 0 };
+
+  function countDoc() {
+    var lines = lineTexts(editor);
+    docStats = statsOf(lines.join('\n'), lines.length);
+  }
+
+  // Stats for the current selection, or null if there isn't one in the editor.
+  // Lines are counted by which blocks the range touches rather than by splitting
+  // the selected string, so "select all" agrees with the document's own count.
+  function selectionStats() {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return null;
+    if (!editor.contains(sel.anchorNode) || !editor.contains(sel.focusNode)) return null;
+
+    var text = sel.toString();
+    if (!text) return null;
+
+    var range = sel.getRangeAt(0);
+    // Blank lines count here exactly as they do in the document total.
+    var touched = leafBlocks(editor).filter(function (el) {
+      return range.intersectsNode(el);
+    }).length;
+
+    return statsOf(text, Math.max(touched, 1));
+  }
+
   function updateMeta() {
     var n = note(db.active);
     if (!n) { metaEl.textContent = ''; return; }
-    var words = (editor.textContent.trim().match(/\S+/g) || []).length;
-    metaEl.textContent = words + (words === 1 ? ' word' : ' words') + ' · ' + when(n.updatedAt);
+
+    var picked = selectionStats();
+    if (picked) {
+      metaEl.textContent = phrase(picked) + ' selected';
+    } else {
+      metaEl.textContent = phrase(docStats) + ' · ' + when(n.updatedAt);
+    }
   }
 
   function when(ts) {
@@ -425,6 +499,7 @@
 
   document.addEventListener('selectionchange', function () {
     if (document.activeElement === editor) syncToolbar();
+    updateMeta();   // counts follow the selection
   });
 
   /* -------------------------------------------------------------- paste */

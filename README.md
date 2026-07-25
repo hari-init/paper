@@ -49,7 +49,15 @@ keeps the stored HTML clean.
 
 ## Layout
 
-The format buttons sit top right, the word count is centred along the bottom, and the
+The status bar along the bottom shows `words · characters · lines`, and switches to the
+same three counts for whatever you've highlighted, suffixed `selected`. Selecting the
+whole note reports exactly the document totals — selection lines are counted by which
+blocks the range touches, not by splitting the selected string, because the browser's
+serialisation of a selection inserts blank lines that the document itself doesn't have.
+Characters exclude line breaks; words are counted with the line breaks left in, so the
+end of one line can't fuse with the start of the next.
+
+The format buttons sit top right, and the
 sidebar toggle is the stack-of-rules button in the top left corner — it stays put whether
 the sidebar is open or closed, so there is always a way back.
 
