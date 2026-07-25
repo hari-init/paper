@@ -7,13 +7,16 @@
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%23FAF8F3'/><rect x='8' y='9' width='16' height='2' fill='%23B4552F'/><rect x='8' y='15' width='16' height='2' fill='%23C9C2B4'/><rect x='8' y='21' width='10' height='2' fill='%23C9C2B4'/></svg>">
 <script>
-// Resolve the theme before first paint, so a dark-mode user never sees a white flash.
+// Resolve theme + palette before first paint, so a dark-mode user never sees a
+// white flash and the colour scheme never swaps under them on load.
 (function () {
   try {
-    var saved = JSON.parse(localStorage.getItem('paper.v1') || '{}').theme || 'auto';
+    var d = JSON.parse(localStorage.getItem('paper.v1') || '{}');
+    var saved = d.theme || 'auto';
     var dark = saved === 'dark' ||
       (saved === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.dataset.palette = d.palette || 'paper';
   } catch (e) {}
 })();
 </script>
@@ -25,25 +28,57 @@
   <aside id="sidebar">
     <header class="side-head">
       <span class="wordmark">Paper</span>
+      <div class="head-actions">
+        <button id="new-note" class="ico" title="New note (⌘⇧N)" aria-label="New note">
+          <svg viewBox="0 0 16 16"><rect x="2.75" y="2" width="10.5" height="12" rx="1.5"/><path d="M8 6.25v3.5M6.25 8h3.5"/></svg>
+        </button>
+        <button id="new-folder" class="ico" title="New folder" aria-label="New folder">
+          <svg viewBox="0 0 16 16"><path d="M1.75 4.25a1 1 0 0 1 1-1h2.9l1.2 1.5h5.4a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/><path d="M8 7.5v3.25M6.4 9.1h3.2"/></svg>
+        </button>
+      </div>
     </header>
 
     <nav id="tree" class="tree"></nav>
 
     <footer class="side-foot">
-      <div class="foot-row">
-        <button id="new-note" class="foot-btn" title="New note (⌘⇧N)">+ Note</button>
-        <button id="new-folder" class="foot-btn">+ Folder</button>
-        <div class="foot-spacer"></div>
-        <button id="export" class="foot-btn quiet" title="Download all notes as JSON">Export</button>
-        <button id="import" class="foot-btn quiet" title="Restore from a JSON backup">Import</button>
-        <input id="import-file" type="file" accept="application/json" hidden>
-      </div>
       <div class="foot-row" id="theme">
         <span class="foot-label">Theme</span>
         <div class="foot-spacer"></div>
         <button class="seg" data-theme-pref="auto"  title="Follow the system">Auto</button>
         <button class="seg" data-theme-pref="light" title="Always light">Light</button>
         <button class="seg" data-theme-pref="dark"  title="Always dark">Dark</button>
+      </div>
+      <div class="foot-row" id="palette">
+        <span class="foot-label">Color</span>
+        <div class="foot-spacer"></div>
+        <button class="seg" data-palette="paper" title="Warm paper and clay">Paper</button>
+        <button class="seg" data-palette="mono"  title="Greyscale, no hue at all">Mono</button>
+        <button class="seg" data-palette="white" title="Clean white, cool blue accent">White</button>
+      </div>
+      <div class="foot-row" id="width">
+        <span class="foot-label">Width</span>
+        <div class="foot-spacer"></div>
+        <button class="seg" data-width="narrow" title="620px column">Narrow</button>
+        <button class="seg" data-width="normal" title="720px column">Normal</button>
+        <button class="seg" data-width="wide"   title="880px column">Wide</button>
+      </div>
+      <div class="foot-row" id="size">
+        <span class="foot-label">Size</span>
+        <div class="foot-spacer"></div>
+        <button class="seg" data-size="small"  title="16px">Small</button>
+        <button class="seg" data-size="medium" title="18px">Medium</button>
+        <button class="seg" data-size="large"  title="20px">Large</button>
+      </div>
+      <div class="foot-row">
+        <span class="foot-label">Data</span>
+        <div class="foot-spacer"></div>
+        <button id="export" class="ico" title="Download all notes as JSON" aria-label="Export">
+          <svg viewBox="0 0 16 16"><path d="M8 2v7.25M5.25 6.75 8 9.5l2.75-2.75"/><path d="M2.75 12.5h10.5"/></svg>
+        </button>
+        <button id="import" class="ico" title="Restore from a JSON backup" aria-label="Import">
+          <svg viewBox="0 0 16 16"><path d="M8 9.5V2.25M5.25 5 8 2.25 10.75 5"/><path d="M2.75 12.5h10.5"/></svg>
+        </button>
+        <input id="import-file" type="file" accept="application/json" hidden>
       </div>
     </footer>
   </aside>

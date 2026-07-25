@@ -53,9 +53,30 @@ The format buttons sit top right, the word count is centred along the bottom, an
 sidebar toggle is the stack-of-rules button in the top left corner — it stays put whether
 the sidebar is open or closed, so there is always a way back.
 
-Theme is `Auto / Light / Dark` at the foot of the sidebar. `Auto` follows the OS and
-switches live if the OS does. The choice is resolved by a short inline script in `<head>`
-before first paint, so opening a dark-themed Paper never flashes white.
+New note and new folder are the two icons beside the wordmark, top of the sidebar.
+Export and import are the arrows at the very bottom.
+
+Four controls sit at the foot of the sidebar, and all of them persist:
+
+| | |
+|---|---|
+| `Theme` | `Auto / Light / Dark`. Auto follows the OS and switches live if the OS does. |
+| `Color` | `Paper` warm cream and clay · `Mono` greyscale, zero hue · `White` clean white with one blue. |
+| `Width` | Writing column: `Narrow` 620px, `Normal` 720px, `Wide` 880px. |
+| `Size` | Body text: `Small` 16px, `Medium` 18px, `Large` 20px. |
+
+Colour and theme are **independent axes** — each of the three palettes has its own light
+and dark pair, so all six combinations are real. In CSS that's `data-palette` and
+`data-theme` on `:root`; every dark rule is scoped to its palette so the two selectors
+can't tie on specificity and fall through to source order.
+
+Width and size are just the `--measure` and `--text-size` custom properties on `:root`,
+so if you want values other than the three presets, edit the `WIDTHS` and `SIZES` maps at
+the top of the appearance section in `app.js`. Headings and the note title are sized in
+`em`, so they scale with whatever you pick rather than drifting out of proportion.
+
+The theme is resolved by a short inline script in `<head>` before first paint, so opening
+a dark-themed Paper never flashes white.
 
 ## Files
 

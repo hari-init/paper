@@ -19,7 +19,8 @@
   function blank() {
     return {
       folders: [], notes: [], tabs: [], active: null,
-      collapsed: {}, sideHidden: false, theme: 'auto'
+      collapsed: {}, sideHidden: false,
+      theme: 'auto', palette: 'paper', width: 'normal', size: 'medium'
     };
   }
 
@@ -462,29 +463,61 @@
     document.body.classList.toggle('side-hidden', db.sideHidden);
   }
 
-  /* -------------------------------------------------------------- theming */
+  /* -------------------------------------------- appearance: theme/width/size */
 
   var systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
-  function applyTheme() {
-    var pref = db.theme || 'auto';
-    var dark = pref === 'dark' || (pref === 'auto' && systemDark.matches);
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    Array.prototype.forEach.call($('theme').querySelectorAll('.seg'), function (b) {
-      b.classList.toggle('on', b.dataset.themePref === pref);
+  var WIDTHS   = { narrow: '620px', normal: '720px', wide: '880px' };
+  var SIZES    = { small:  '16px',  medium: '18px',  large: '20px' };
+  var PALETTES = { paper: 1, mono: 1, white: 1 };
+
+  // Light up the chosen segment in one of the sidebar's little control rows.
+  function markSegs(rowId, dataKey, value) {
+    Array.prototype.forEach.call($(rowId).querySelectorAll('.seg'), function (b) {
+      b.classList.toggle('on', b.dataset[dataKey] === value);
     });
   }
 
-  $('theme').addEventListener('click', function (e) {
-    var b = e.target.closest('.seg');
-    if (!b) return;
-    db.theme = b.dataset.themePref;
-    save();
-    applyTheme();
-  });
+  // Point a control row at a state field; re-applies and saves on click.
+  function wireSegs(rowId, dataKey, field) {
+    $(rowId).addEventListener('click', function (e) {
+      var b = e.target.closest('.seg');
+      if (!b) return;
+      db[field] = b.dataset[dataKey];
+      save();
+      applyAppearance();
+    });
+  }
+
+  function applyAppearance() {
+    var theme   = db.theme || 'auto';
+    var palette = PALETTES[db.palette] ? db.palette : 'paper';
+    var width   = WIDTHS[db.width]     ? db.width   : 'normal';
+    var size    = SIZES[db.size]       ? db.size    : 'medium';
+
+    // Colour is two independent axes: palette picks the hue, theme picks light
+    // or dark within it. The stylesheet pairs them.
+    var dark = theme === 'dark' || (theme === 'auto' && systemDark.matches);
+    var root = document.documentElement;
+    root.dataset.theme = dark ? 'dark' : 'light';
+    root.dataset.palette = palette;
+
+    root.style.setProperty('--measure', WIDTHS[width]);
+    root.style.setProperty('--text-size', SIZES[size]);
+
+    markSegs('theme',   'themePref', theme);
+    markSegs('palette', 'palette',   palette);
+    markSegs('width',   'width',     width);
+    markSegs('size',    'size',      size);
+  }
+
+  wireSegs('theme',   'themePref', 'theme');
+  wireSegs('palette', 'palette',   'palette');
+  wireSegs('width',   'width',     'width');
+  wireSegs('size',    'size',      'size');
 
   // Only matters while the preference is "auto".
-  var onSystemChange = function () { if ((db.theme || 'auto') === 'auto') applyTheme(); };
+  var onSystemChange = function () { if ((db.theme || 'auto') === 'auto') applyAppearance(); };
   if (systemDark.addEventListener) systemDark.addEventListener('change', onSystemChange);
   else systemDark.addListener(onSystemChange);
 
@@ -545,7 +578,7 @@
     openNote(db.notes[0].id);
   }
 
-  applyTheme();
+  applyAppearance();
   render();
   loadIntoEditor();
 })();
