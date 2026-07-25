@@ -1,0 +1,551 @@
+/* Paper — a local-first notepad.
+   Everything lives in localStorage under one key. No server, no account. */
+
+(function () {
+  'use strict';
+
+  var KEY = 'paper.v1';
+  var EMPTY_DOC = '<p><br></p>';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var tree = $('tree'), tabsEl = $('tabs'), editor = $('editor'),
+      wrap = $('editor-wrap'), emptyEl = $('empty'), metaEl = $('meta'),
+      toolbar = $('toolbar');
+
+  /* ------------------------------------------------------------- state */
+
+  var db = load();
+
+  function blank() {
+    return {
+      folders: [], notes: [], tabs: [], active: null,
+      collapsed: {}, sideHidden: false, theme: 'auto'
+    };
+  }
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return blank();
+      var d = JSON.parse(raw);
+      var base = blank();
+      for (var k in base) if (!(k in d)) d[k] = base[k];
+      return d;
+    } catch (e) {
+      console.warn('Could not read saved notes, starting fresh.', e);
+      return blank();
+    }
+  }
+
+  var saveTimer = null;
+  function save(now) {
+    clearTimeout(saveTimer);
+    var write = function () {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(db));
+      } catch (e) {
+        metaEl.textContent = 'Could not save — storage full';
+        console.error(e);
+      }
+    };
+    if (now) write(); else saveTimer = setTimeout(write, 400);
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function note(id) {
+    for (var i = 0; i < db.notes.length; i++) if (db.notes[i].id === id) return db.notes[i];
+    return null;
+  }
+
+  function folder(id) {
+    for (var i = 0; i < db.folders.length; i++) if (db.folders[i].id === id) return db.folders[i];
+    return null;
+  }
+
+  /* ------------------------------------------------------------ titles */
+
+  // The title is just the first line of the note. No naming dialogs.
+  function titleOf(n) {
+    if (!n) return 'Untitled';
+    var tmp = document.createElement('div');
+    tmp.innerHTML = n.html || '';
+    // Each top-level node is one visual line; take the first one with text in it.
+    var first = '';
+    for (var i = 0; i < tmp.childNodes.length && !first; i++) {
+      first = (tmp.childNodes[i].textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    return first ? first.slice(0, 60) : 'Untitled';
+  }
+
+  /* ------------------------------------------------------------ actions */
+
+  function createNote(folderId) {
+    var n = {
+      id: uid(),
+      folderId: folderId || null,
+      html: '',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    db.notes.unshift(n);
+    if (folderId) db.collapsed[folderId] = false;
+    openNote(n.id);
+    save();
+    editor.focus();
+    return n;
+  }
+
+  function createFolder() {
+    var name = prompt('Folder name');
+    if (!name || !name.trim()) return;
+    db.folders.push({ id: uid(), name: name.trim(), createdAt: Date.now() });
+    save();
+    render();
+  }
+
+  function deleteNote(id) {
+    var n = note(id);
+    if (!n) return;
+    if (!confirm('Delete "' + titleOf(n) + '"? This cannot be undone.')) return;
+    db.notes = db.notes.filter(function (x) { return x.id !== id; });
+    closeTab(id, true);
+    save();
+    render();
+  }
+
+  function deleteFolder(id) {
+    var f = folder(id);
+    if (!f) return;
+    var inside = db.notes.filter(function (n) { return n.folderId === id; });
+    var msg = inside.length
+      ? 'Delete "' + f.name + '" and its ' + inside.length + ' note' + (inside.length > 1 ? 's' : '') + '?'
+      : 'Delete "' + f.name + '"?';
+    if (!confirm(msg)) return;
+    inside.forEach(function (n) { closeTab(n.id, true); });
+    db.notes = db.notes.filter(function (n) { return n.folderId !== id; });
+    db.folders = db.folders.filter(function (x) { return x.id !== id; });
+    save();
+    render();
+  }
+
+  function renameFolder(id) {
+    var f = folder(id);
+    if (!f) return;
+    var name = prompt('Rename folder', f.name);
+    if (!name || !name.trim()) return;
+    f.name = name.trim();
+    save();
+    render();
+  }
+
+  /* --------------------------------------------------------------- tabs */
+
+  function openNote(id) {
+    if (db.tabs.indexOf(id) === -1) db.tabs.push(id);
+    setActive(id);
+  }
+
+  function setActive(id) {
+    if (db.active === id) { render(); return; }
+    flush();                       // persist whatever is in the editor now
+    db.active = id;
+    save();
+    render();
+    loadIntoEditor();
+  }
+
+  function closeTab(id, silent) {
+    var i = db.tabs.indexOf(id);
+    if (i === -1) return;
+    if (db.active === id) flush();
+    db.tabs.splice(i, 1);
+    if (db.active === id) {
+      db.active = db.tabs[Math.min(i, db.tabs.length - 1)] || null;
+      if (!silent) { render(); loadIntoEditor(); }
+    }
+    save();
+    if (!silent) render();
+  }
+
+  /* ------------------------------------------------------------- editor */
+
+  var loading = false;
+
+  function loadIntoEditor() {
+    var n = note(db.active);
+    loading = true;
+    // Start with a real block so the first line is a paragraph, not loose text.
+    editor.innerHTML = n ? (n.html || EMPTY_DOC) : '';
+    loading = false;
+    updateBlankClass();
+    updateMeta();
+    if (n) editor.focus();
+    syncToolbar();   // otherwise the previous note's active marks stay lit
+  }
+
+  // Persist the editor's current contents into the active note.
+  function flush() {
+    var n = note(db.active);
+    if (!n) return;
+    var html = editor.innerHTML;
+    if (!editor.textContent.trim() && !editor.querySelector('img, hr')) html = '';
+    if (html === n.html) return;
+    n.html = html;
+    n.updatedAt = Date.now();
+  }
+
+  // Typing into a fresh contenteditable produces a bare text node rather than a
+  // block, which throws off both the title styling and the one-node-per-line
+  // assumption in titleOf(). Wrap any stray top-level text back into a <p>.
+  function normalizeBlocks() {
+    for (var i = 0; i < editor.childNodes.length; i++) {
+      if (editor.childNodes[i].nodeType === 3 && editor.childNodes[i].textContent.trim()) {
+        document.execCommand('formatBlock', false, 'p');
+        return;
+      }
+    }
+  }
+
+  // execCommand's list commands wrap the list in the paragraph it replaced,
+  // giving <p><ul>…</ul></p>. That's invalid, and innerHTML re-parses it as a
+  // stray empty <p> plus the list on reload, which shifts every block down one.
+  function unwrapLists() {
+    var lists = editor.querySelectorAll('p > ul, p > ol');
+    for (var i = 0; i < lists.length; i++) {
+      var list = lists[i], p = list.parentNode;
+      if (p.textContent.trim() === list.textContent.trim()) {
+        p.parentNode.replaceChild(list, p);
+      }
+    }
+  }
+
+  function onInput() {
+    if (loading) return;
+    normalizeBlocks();
+    unwrapLists();
+    flush();
+    updateBlankClass();
+    updateMeta();
+    renderTabs();
+    renderTree();
+    save();
+  }
+
+  function updateBlankClass() {
+    var empty = !editor.textContent.trim() && !editor.querySelector('img, hr');
+    editor.classList.toggle('blank', empty);
+  }
+
+  function updateMeta() {
+    var n = note(db.active);
+    if (!n) { metaEl.textContent = ''; return; }
+    var words = (editor.textContent.trim().match(/\S+/g) || []).length;
+    metaEl.textContent = words + (words === 1 ? ' word' : ' words') + ' · ' + when(n.updatedAt);
+  }
+
+  function when(ts) {
+    var d = new Date(ts), now = new Date();
+    var sameDay = d.toDateString() === now.toDateString();
+    if (sameDay) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  /* ---------------------------------------------------------- rendering */
+
+  function render() {
+    renderTree();
+    renderTabs();
+    var has = !!note(db.active);
+    wrap.hidden = !has;
+    emptyEl.hidden = has;
+    document.body.classList.toggle('side-hidden', !!db.sideHidden);
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function noteRow(n, nested) {
+    var row = el('div', 'row note' + (nested ? ' nested' : '') + (n.id === db.active ? ' active' : ''));
+    row.draggable = true;
+    row.appendChild(el('span', 'name', titleOf(n)));
+    var x = el('span', 'x', '×');
+    x.title = 'Delete note';
+    x.onclick = function (e) { e.stopPropagation(); deleteNote(n.id); };
+    row.appendChild(x);
+    row.onclick = function () { openNote(n.id); };
+    row.ondragstart = function (e) {
+      e.dataTransfer.setData('text/plain', n.id);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    };
+    row.ondragend = function () { row.classList.remove('dragging'); };
+    return row;
+  }
+
+  function renderTree() {
+    tree.innerHTML = '';
+
+    db.folders.forEach(function (f) {
+      var open = !db.collapsed[f.id];
+      var row = el('div', 'row folder' + (open ? ' open' : ''));
+      row.appendChild(el('span', 'caret', '▶'));
+      row.appendChild(el('span', 'name folder-name', f.name));
+
+      var plus = el('span', 'x', '+');
+      plus.title = 'New note in ' + f.name;
+      plus.onclick = function (e) { e.stopPropagation(); createNote(f.id); };
+      row.appendChild(plus);
+
+      var x = el('span', 'x', '×');
+      x.title = 'Delete folder';
+      x.onclick = function (e) { e.stopPropagation(); deleteFolder(f.id); };
+      row.appendChild(x);
+
+      row.onclick = function () { db.collapsed[f.id] = open; save(); renderTree(); };
+      row.ondblclick = function () { renameFolder(f.id); };
+
+      row.ondragover = function (e) { e.preventDefault(); row.classList.add('drop-target'); };
+      row.ondragleave = function () { row.classList.remove('drop-target'); };
+      row.ondrop = function (e) {
+        e.preventDefault();
+        row.classList.remove('drop-target');
+        var n = note(e.dataTransfer.getData('text/plain'));
+        if (!n) return;
+        n.folderId = f.id;
+        db.collapsed[f.id] = false;
+        save();
+        renderTree();
+      };
+
+      tree.appendChild(row);
+
+      if (open) {
+        db.notes.filter(function (n) { return n.folderId === f.id; })
+                .forEach(function (n) { tree.appendChild(noteRow(n, true)); });
+      }
+    });
+
+    var loose = db.notes.filter(function (n) {
+      return !n.folderId || !folder(n.folderId);
+    });
+    loose.forEach(function (n) { tree.appendChild(noteRow(n, false)); });
+
+    if (!db.notes.length && !db.folders.length) {
+      tree.appendChild(el('div', 'empty-hint', 'No notes yet.'));
+    }
+  }
+
+  function renderTabs() {
+    tabsEl.innerHTML = '';
+    db.tabs.forEach(function (id) {
+      var n = note(id);
+      if (!n) return;
+      var t = el('div', 'tab' + (id === db.active ? ' active' : ''));
+      t.appendChild(el('span', 'label', titleOf(n)));
+      var x = el('span', 'x', '×');
+      x.onclick = function (e) { e.stopPropagation(); closeTab(id); };
+      t.appendChild(x);
+      t.onclick = function () { setActive(id); };
+      t.onauxclick = function (e) { if (e.button === 1) { e.preventDefault(); closeTab(id); } };
+      tabsEl.appendChild(t);
+    });
+  }
+
+  /* ----------------------------------------------------- formatting bar */
+
+  function exec(cmd, arg) {
+    editor.focus();
+    document.execCommand(cmd, false, arg || null);
+    onInput();
+    syncToolbar();
+  }
+
+  toolbar.addEventListener('mousedown', function (e) {
+    // keep the selection alive while the button is pressed
+    if (e.target.closest('button')) e.preventDefault();
+  });
+
+  toolbar.addEventListener('click', function (e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.cmd) return exec(btn.dataset.cmd);
+    if (btn.dataset.block) {
+      var cur = currentBlock();
+      var want = btn.dataset.block.toUpperCase();
+      exec('formatBlock', cur === want ? 'P' : want);
+    }
+  });
+
+  function currentBlock() {
+    try { return (document.queryCommandValue('formatBlock') || '').toUpperCase(); }
+    catch (e) { return ''; }
+  }
+
+  // Inline tags that each command produces. queryCommandState() can't be used
+  // here: it reports the *computed* font-weight, so it claims "bold" anywhere
+  // the stylesheet sets one — every title and heading — and the button would
+  // sit lit on lines the user never bolded.
+  var MARKS = {
+    bold:          ['B', 'STRONG'],
+    italic:        ['I', 'EM'],
+    underline:     ['U'],
+    strikeThrough: ['S', 'STRIKE', 'DEL'],
+    insertUnorderedList: ['UL'],
+    insertOrderedList:   ['OL']
+  };
+
+  function inMark(tags) {
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return false;
+    var n = sel.getRangeAt(0).startContainer;
+    while (n && n !== editor) {
+      if (n.nodeType === 1 && tags.indexOf(n.nodeName) > -1) return true;
+      n = n.parentNode;
+    }
+    return false;
+  }
+
+  function syncToolbar() {
+    var block = currentBlock();
+    Array.prototype.forEach.call(toolbar.querySelectorAll('button'), function (b) {
+      var on = false;
+      if (b.dataset.cmd && MARKS[b.dataset.cmd]) on = inMark(MARKS[b.dataset.cmd]);
+      if (b.dataset.block) on = block === b.dataset.block.toUpperCase();
+      b.classList.toggle('on', on);
+    });
+  }
+
+  document.addEventListener('selectionchange', function () {
+    if (document.activeElement === editor) syncToolbar();
+  });
+
+  /* -------------------------------------------------------------- paste */
+
+  editor.addEventListener('paste', function (e) {
+    // Paste as plain text — keeps the document clean of foreign markup.
+    e.preventDefault();
+    var text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    document.execCommand('insertText', false, text);
+  });
+
+  editor.addEventListener('input', onInput);
+  editor.addEventListener('blur', function () { flush(); save(true); });
+
+  /* ---------------------------------------------------------- shortcuts */
+
+  document.addEventListener('keydown', function (e) {
+    var mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    var k = e.key.toLowerCase();
+
+    if (k === 'n' && e.shiftKey) { e.preventDefault(); createNote(activeFolder()); return; }
+    if (k === 's')               { e.preventDefault(); flush(); save(true); return; }
+    if (k === '\\')              { e.preventDefault(); toggleSidebar(); return; }
+    if (k === 'w' && e.shiftKey) { e.preventDefault(); if (db.active) closeTab(db.active); return; }
+  });
+
+  function activeFolder() {
+    var n = note(db.active);
+    return n ? n.folderId : null;
+  }
+
+  function toggleSidebar() {
+    db.sideHidden = !db.sideHidden;
+    save();
+    document.body.classList.toggle('side-hidden', db.sideHidden);
+  }
+
+  /* -------------------------------------------------------------- theming */
+
+  var systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+  function applyTheme() {
+    var pref = db.theme || 'auto';
+    var dark = pref === 'dark' || (pref === 'auto' && systemDark.matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    Array.prototype.forEach.call($('theme').querySelectorAll('.seg'), function (b) {
+      b.classList.toggle('on', b.dataset.themePref === pref);
+    });
+  }
+
+  $('theme').addEventListener('click', function (e) {
+    var b = e.target.closest('.seg');
+    if (!b) return;
+    db.theme = b.dataset.themePref;
+    save();
+    applyTheme();
+  });
+
+  // Only matters while the preference is "auto".
+  var onSystemChange = function () { if ((db.theme || 'auto') === 'auto') applyTheme(); };
+  if (systemDark.addEventListener) systemDark.addEventListener('change', onSystemChange);
+  else systemDark.addListener(onSystemChange);
+
+  /* ------------------------------------------------------ export/import */
+
+  function exportJSON() {
+    var blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'paper-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  $('import-file').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var d = JSON.parse(reader.result);
+        if (!Array.isArray(d.notes)) throw new Error('Not a Paper backup');
+        if (!confirm('Replace all current notes with this backup? ' +
+                     d.notes.length + ' notes will be restored.')) return;
+        db = Object.assign(blank(), d);
+        save(true);
+        render();
+        loadIntoEditor();
+      } catch (err) {
+        alert("That file doesn't look like a Paper backup.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  /* --------------------------------------------------------------- wire */
+
+  $('new-note').onclick    = function () { createNote(activeFolder()); };
+  $('new-folder').onclick  = createFolder;
+  $('empty-new').onclick   = function () { createNote(null); };
+  $('toggle-side').onclick = toggleSidebar;
+  $('export').onclick      = exportJSON;
+  $('import').onclick      = function () { $('import-file').click(); };
+
+  window.addEventListener('beforeunload', function () { flush(); save(true); });
+
+  /* --------------------------------------------------------------- boot */
+
+  // Prune tabs pointing at deleted notes.
+  db.tabs = db.tabs.filter(function (id) { return !!note(id); });
+  if (!note(db.active)) db.active = db.tabs[db.tabs.length - 1] || null;
+
+  if (!db.notes.length) {
+    // First run: just put a cursor on a blank page.
+    createNote(null);
+  } else if (!db.active) {
+    openNote(db.notes[0].id);
+  }
+
+  applyTheme();
+  render();
+  loadIntoEditor();
+})();

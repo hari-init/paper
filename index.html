@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%23FAF8F3'/><rect x='8' y='9' width='16' height='2' fill='%23B4552F'/><rect x='8' y='15' width='16' height='2' fill='%23C9C2B4'/><rect x='8' y='21' width='10' height='2' fill='%23C9C2B4'/></svg>">
+<script>
+// Resolve the theme before first paint, so a dark-mode user never sees a white flash.
+(function () {
+  try {
+    var saved = JSON.parse(localStorage.getItem('paper.v1') || '{}').theme || 'auto';
+    var dark = saved === 'dark' ||
+      (saved === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  } catch (e) {}
+})();
+</script>
+</head>
+<body>
+
+<div id="app">
+
+  <aside id="sidebar">
+    <header class="side-head">
+      <span class="wordmark">Paper</span>
+    </header>
+
+    <nav id="tree" class="tree"></nav>
+
+    <footer class="side-foot">
+      <div class="foot-row">
+        <button id="new-note" class="foot-btn" title="New note (⌘⇧N)">+ Note</button>
+        <button id="new-folder" class="foot-btn">+ Folder</button>
+        <div class="foot-spacer"></div>
+        <button id="export" class="foot-btn quiet" title="Download all notes as JSON">Export</button>
+        <button id="import" class="foot-btn quiet" title="Restore from a JSON backup">Import</button>
+        <input id="import-file" type="file" accept="application/json" hidden>
+      </div>
+      <div class="foot-row" id="theme">
+        <span class="foot-label">Theme</span>
+        <div class="foot-spacer"></div>
+        <button class="seg" data-theme-pref="auto"  title="Follow the system">Auto</button>
+        <button class="seg" data-theme-pref="light" title="Always light">Light</button>
+        <button class="seg" data-theme-pref="dark"  title="Always dark">Dark</button>
+      </div>
+    </footer>
+  </aside>
+
+  <main id="main">
+    <div class="topbar">
+      <button id="toggle-side" class="icon-btn" title="Show/hide sidebar (⌘\)">
+        <span class="bars"></span>
+      </button>
+      <div id="tabs" class="tabs"></div>
+
+      <div id="toolbar" class="toolbar">
+        <button data-cmd="bold"          title="Bold (⌘B)"><b>B</b></button>
+        <button data-cmd="italic"        title="Italic (⌘I)"><i>I</i></button>
+        <button data-cmd="underline"     title="Underline (⌘U)"><u>U</u></button>
+        <button data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+        <span class="tb-rule"></span>
+        <button data-block="h2"          title="Heading">H</button>
+        <button data-cmd="insertUnorderedList" title="Bulleted list">&bull;</button>
+        <button data-cmd="insertOrderedList"   title="Numbered list">1.</button>
+        <button data-block="blockquote"  title="Quote">&rdquo;</button>
+        <span class="tb-rule"></span>
+        <button data-cmd="removeFormat"  title="Clear formatting">&#9003;</button>
+      </div>
+    </div>
+
+    <div id="editor-wrap">
+      <div id="editor" class="editor" contenteditable="true" spellcheck="true"></div>
+
+      <div class="statusbar"><span id="meta" class="meta"></span></div>
+    </div>
+
+    <div id="empty" class="empty" hidden>
+      <p>Nothing open.</p>
+      <button id="empty-new" class="link-btn">Start writing</button>
+    </div>
+  </main>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
