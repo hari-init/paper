@@ -35,6 +35,11 @@ it, saving fails loudly in the word-count line rather than silently losing work.
   name in place (double-clicking the folder does the same): `Enter` or clicking away
   commits, `Escape` cancels, and a blank name is refused rather than saved.
 - **Autosave** runs 400 ms after you stop typing, and on blur, tab switch, and close.
+- **No native dialogs.** Confirmations and messages are drawn in-app; `prompt`, `confirm`
+  and `alert` appear nowhere. New folders skip the naming dialog entirely — the folder
+  appears with its name already selected in the sidebar, and abandoning it removes it.
+  The one piece of OS UI left is the file picker behind Import, which a page cannot draw
+  for itself.
 
 ## Formatting
 

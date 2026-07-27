@@ -45,7 +45,8 @@
       try {
         localStorage.setItem(KEY, JSON.stringify(db));
       } catch (e) {
-        metaEl.textContent = 'Could not save — storage full';
+        // Was written into the status bar, where updateMeta() promptly wiped it.
+        toast('Could not save — browser storage is full.');
         console.error(e);
       }
     };
@@ -54,6 +55,49 @@
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  /* ------------------------------------------------- dialog + toast (no native)
+
+     Replaces prompt()/confirm()/alert(). The only OS-level UI left is the file
+     picker behind Import, which a page can't draw for itself. */
+
+  var scrim = $('scrim'), pendingConfirm = null, focusBeforeDialog = null;
+
+  function ask(opts, onConfirm) {
+    $('dlg-title').textContent = opts.title;
+    $('dlg-body').textContent = opts.body || '';
+    $('dlg-body').hidden = !opts.body;
+    $('dlg-ok').textContent = opts.confirm || 'OK';
+
+    pendingConfirm = onConfirm;
+    focusBeforeDialog = document.activeElement;
+    scrim.hidden = false;
+    // Cancel takes focus: these actions are destructive and nothing here is undoable.
+    $('dlg-cancel').focus();
+  }
+
+  function closeDialog(proceed) {
+    if (scrim.hidden) return;
+    scrim.hidden = true;
+    var fn = pendingConfirm;
+    pendingConfirm = null;
+    if (focusBeforeDialog && focusBeforeDialog.focus) focusBeforeDialog.focus();
+    focusBeforeDialog = null;
+    if (proceed && fn) fn();
+  }
+
+  $('dlg-cancel').onclick = function () { closeDialog(false); };
+  $('dlg-ok').onclick     = function () { closeDialog(true); };
+  scrim.onclick = function (e) { if (e.target === scrim) closeDialog(false); };
+
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, 3400);
   }
 
   function note(id) {
@@ -99,44 +143,65 @@
     return n;
   }
 
+  // No naming dialog: the folder appears immediately and its name is already
+  // selected in the sidebar, the same way a new note is just a blank page.
   function createFolder() {
-    var name = prompt('Folder name');
-    if (!name || !name.trim()) return;
-    db.folders.push({ id: uid(), name: name.trim(), createdAt: Date.now() });
+    var f = { id: uid(), name: 'New folder', createdAt: Date.now() };
+    db.folders.push(f);
     save();
-    render();
+    renderTree();
+
+    var row = tree.querySelector('[data-folder="' + f.id + '"]');
+    if (row) beginRename(f, row.querySelector('.name'), true);
   }
 
   function deleteNote(id) {
     var n = note(id);
     if (!n) return;
-    if (!confirm('Delete "' + titleOf(n) + '"? This cannot be undone.')) return;
-    db.notes = db.notes.filter(function (x) { return x.id !== id; });
-    closeTab(id, true);
-    save();
-    render();
+    ask({
+      title: 'Delete “' + titleOf(n) + '”?',
+      body: 'This cannot be undone.',
+      confirm: 'Delete'
+    }, function () {
+      db.notes = db.notes.filter(function (x) { return x.id !== id; });
+      closeTab(id, true);
+      save();
+      render();
+      // closeTab was silent, so the editor is still showing the note we just
+      // deleted. Without this the next keystroke flushes that stale text into
+      // whichever note the tab bar switched to.
+      loadIntoEditor();
+    });
   }
 
   function deleteFolder(id) {
     var f = folder(id);
     if (!f) return;
     var inside = db.notes.filter(function (n) { return n.folderId === id; });
-    var msg = inside.length
-      ? 'Delete "' + f.name + '" and its ' + inside.length + ' note' + (inside.length > 1 ? 's' : '') + '?'
-      : 'Delete "' + f.name + '"?';
-    if (!confirm(msg)) return;
-    inside.forEach(function (n) { closeTab(n.id, true); });
-    db.notes = db.notes.filter(function (n) { return n.folderId !== id; });
-    db.folders = db.folders.filter(function (x) { return x.id !== id; });
-    save();
-    render();
+    ask({
+      title: 'Delete “' + f.name + '”?',
+      body: inside.length
+        ? 'The ' + inside.length + ' note' + (inside.length > 1 ? 's' : '') +
+          ' inside will be deleted too. This cannot be undone.'
+        : 'This cannot be undone.',
+      confirm: 'Delete'
+    }, function () {
+      inside.forEach(function (n) { closeTab(n.id, true); });
+      db.notes = db.notes.filter(function (n) { return n.folderId !== id; });
+      db.folders = db.folders.filter(function (x) { return x.id !== id; });
+      save();
+      render();
+      loadIntoEditor();   // same stale-editor hazard as deleteNote
+    });
   }
 
   // Rename happens in place in the sidebar rather than through a dialog, to
   // match the way note titles are just the first line you type.
   var renaming = null;
 
-  function beginRename(f, nameEl) {
+  // `isNew` means the folder was created by this rename; abandoning it (Escape,
+  // or leaving the name blank) removes it rather than leaving "New folder".
+  function beginRename(f, nameEl, isNew) {
     if (renaming) return;
     renaming = f.id;
 
@@ -160,8 +225,13 @@
       nameEl.classList.remove('editing');
 
       var next = (nameEl.textContent || '').replace(/\s+/g, ' ').trim();
-      if (commit && next && next !== original) {
+      var keep = commit && next;
+
+      if (keep && next !== original) {
         f.name = next;
+        save();
+      } else if (!keep && isNew) {
+        db.folders = db.folders.filter(function (x) { return x.id !== f.id; });
         save();
       }
       renderTree();   // redraws from state, so a cancel puts the old name back
@@ -424,6 +494,7 @@
     db.folders.forEach(function (f) {
       var open = !db.collapsed[f.id];
       var row = el('div', 'row folder' + (open ? ' open' : ''));
+      row.setAttribute('data-folder', f.id);
       row.appendChild(el('span', 'caret', '▶'));
 
       var nameEl = el('span', 'name folder-name', f.name);
@@ -578,6 +649,12 @@
   /* ---------------------------------------------------------- shortcuts */
 
   document.addEventListener('keydown', function (e) {
+    if (!scrim.hidden) {
+      // The dialog owns the keyboard while it's up.
+      if (e.key === 'Escape') { e.preventDefault(); closeDialog(false); }
+      return;
+    }
+
     var mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     var k = e.key.toLowerCase();
@@ -673,18 +750,27 @@
     if (!file) return;
     var reader = new FileReader();
     reader.onload = function () {
+      var d;
       try {
-        var d = JSON.parse(reader.result);
+        d = JSON.parse(reader.result);
         if (!Array.isArray(d.notes)) throw new Error('Not a Paper backup');
-        if (!confirm('Replace all current notes with this backup? ' +
-                     d.notes.length + ' notes will be restored.')) return;
+      } catch (err) {
+        toast('That file doesn’t look like a Paper backup.');
+        return;
+      }
+      ask({
+        title: 'Replace everything with this backup?',
+        body: 'Your current ' + db.notes.length + ' note' + (db.notes.length === 1 ? '' : 's') +
+              ' will be discarded and ' + d.notes.length + ' restored. This cannot be undone.',
+        confirm: 'Replace'
+      }, function () {
         db = Object.assign(blank(), d);
         save(true);
+        applyAppearance();
         render();
         loadIntoEditor();
-      } catch (err) {
-        alert("That file doesn't look like a Paper backup.");
-      }
+        toast('Restored ' + d.notes.length + ' note' + (d.notes.length === 1 ? '' : 's') + '.');
+      });
     };
     reader.readAsText(file);
     e.target.value = '';

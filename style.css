@@ -527,6 +527,84 @@ body.side-hidden #sidebar { margin-left: calc(var(--side-w) * -1); }
   text-underline-offset: 3px;
 }
 
+/* ------------------------------------------------ dialog + toast (no native)
+
+   Everything that would otherwise be prompt()/confirm()/alert(). */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .42);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 330px;
+  background: var(--paper);
+  border-radius: 8px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .26);
+}
+
+.dlg-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.dlg-body {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.btn {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--rule-soft);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.btn:hover { background: var(--rule); color: var(--ink); }
+
+.btn.primary { background: var(--accent); color: var(--paper); }
+.btn.primary:hover { background: var(--accent); color: var(--paper); opacity: .88; }
+
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 46px;
+  z-index: 60;
+  transform: translateX(-50%);
+  max-width: 76vw;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .22);
+}
+
 /* scrollbars */
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
