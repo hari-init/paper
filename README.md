@@ -31,7 +31,9 @@ it, saving fails loudly in the word-count line rather than silently losing work.
 - **Tabs** hold what you have open. Closing a tab does not delete the note; the `×` in
   the sidebar does, and asks first.
 - **Folders** are one level deep, on purpose. Drag a note onto a folder to move it.
-  Double-click a folder to rename it.
+  Hovering a folder reveals three actions — new note, rename, delete. Rename edits the
+  name in place (double-clicking the folder does the same): `Enter` or clicking away
+  commits, `Escape` cancels, and a blank name is refused rather than saved.
 - **Autosave** runs 400 ms after you stop typing, and on blur, tab switch, and close.
 
 ## Formatting

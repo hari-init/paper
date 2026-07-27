@@ -132,14 +132,48 @@
     render();
   }
 
-  function renameFolder(id) {
-    var f = folder(id);
-    if (!f) return;
-    var name = prompt('Rename folder', f.name);
-    if (!name || !name.trim()) return;
-    f.name = name.trim();
-    save();
-    render();
+  // Rename happens in place in the sidebar rather than through a dialog, to
+  // match the way note titles are just the first line you type.
+  var renaming = null;
+
+  function beginRename(f, nameEl) {
+    if (renaming) return;
+    renaming = f.id;
+
+    var original = f.name, settled = false;
+    nameEl.contentEditable = 'true';
+    nameEl.spellcheck = false;
+    nameEl.classList.add('editing');
+    nameEl.focus();
+
+    var r = document.createRange();
+    r.selectNodeContents(nameEl);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    function settle(commit) {
+      if (settled) return;
+      settled = true;
+      renaming = null;
+      nameEl.contentEditable = 'false';
+      nameEl.classList.remove('editing');
+
+      var next = (nameEl.textContent || '').replace(/\s+/g, ' ').trim();
+      if (commit && next && next !== original) {
+        f.name = next;
+        save();
+      }
+      renderTree();   // redraws from state, so a cancel puts the old name back
+    }
+
+    // Swallow keys so the app's ⌘-shortcuts don't fire while typing a name.
+    nameEl.addEventListener('keydown', function (e) {
+      e.stopPropagation();
+      if (e.key === 'Enter')       { e.preventDefault(); settle(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); settle(false); }
+    });
+    nameEl.addEventListener('blur', function () { settle(true); });
   }
 
   /* --------------------------------------------------------------- tabs */
@@ -346,14 +380,34 @@
     return e;
   }
 
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var GLYPHS = {
+    plus:   ['M8 3.75v8.5', 'M3.75 8h8.5'],
+    pencil: ['M11.3 2.7l2 2-7.15 7.15-2.6.6.6-2.6z', 'M10.1 3.9l2 2'],
+    times:  ['M4.2 4.2l7.6 7.6', 'M11.8 4.2l-7.6 7.6']
+  };
+
+  // A hover action on a tree row: small stroked icon, click handler, tooltip.
+  function rowAction(glyph, label, onClick) {
+    var span = el('span', 'act');
+    span.title = label;
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    GLYPHS[glyph].forEach(function (d) {
+      var path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+    });
+    span.appendChild(svg);
+    span.onclick = function (e) { e.stopPropagation(); onClick(); };
+    return span;
+  }
+
   function noteRow(n, nested) {
     var row = el('div', 'row note' + (nested ? ' nested' : '') + (n.id === db.active ? ' active' : ''));
     row.draggable = true;
     row.appendChild(el('span', 'name', titleOf(n)));
-    var x = el('span', 'x', '×');
-    x.title = 'Delete note';
-    x.onclick = function (e) { e.stopPropagation(); deleteNote(n.id); };
-    row.appendChild(x);
+    row.appendChild(rowAction('times', 'Delete note', function () { deleteNote(n.id); }));
     row.onclick = function () { openNote(n.id); };
     row.ondragstart = function (e) {
       e.dataTransfer.setData('text/plain', n.id);
@@ -371,20 +425,27 @@
       var open = !db.collapsed[f.id];
       var row = el('div', 'row folder' + (open ? ' open' : ''));
       row.appendChild(el('span', 'caret', '▶'));
-      row.appendChild(el('span', 'name folder-name', f.name));
 
-      var plus = el('span', 'x', '+');
-      plus.title = 'New note in ' + f.name;
-      plus.onclick = function (e) { e.stopPropagation(); createNote(f.id); };
-      row.appendChild(plus);
+      var nameEl = el('span', 'name folder-name', f.name);
+      row.appendChild(nameEl);
 
-      var x = el('span', 'x', '×');
-      x.title = 'Delete folder';
-      x.onclick = function (e) { e.stopPropagation(); deleteFolder(f.id); };
-      row.appendChild(x);
+      row.appendChild(rowAction('plus', 'New note in ' + f.name, function () {
+        createNote(f.id);
+      }));
+      row.appendChild(rowAction('pencil', 'Rename folder', function () {
+        beginRename(f, nameEl);
+      }));
+      row.appendChild(rowAction('times', 'Delete folder', function () {
+        deleteFolder(f.id);
+      }));
 
-      row.onclick = function () { db.collapsed[f.id] = open; save(); renderTree(); };
-      row.ondblclick = function () { renameFolder(f.id); };
+      row.onclick = function () {
+        if (renaming) return;   // don't collapse out from under the field
+        db.collapsed[f.id] = open;
+        save();
+        renderTree();
+      };
+      row.ondblclick = function () { beginRename(f, nameEl); };
 
       row.ondragover = function (e) { e.preventDefault(); row.classList.add('drop-target'); };
       row.ondragleave = function () { row.classList.remove('drop-target'); };
