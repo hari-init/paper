@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paper</title>
-<link rel="stylesheet" href="style.css">
+<!-- ?v= is bumped on every deploy: GitHub Pages serves assets with a long
+     max-age, so without it an already-open tab keeps running the old script. -->
+<link rel="stylesheet" href="style.css?v=6">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%23FAF8F3'/><rect x='8' y='9' width='16' height='2' fill='%23B4552F'/><rect x='8' y='15' width='16' height='2' fill='%23C9C2B4'/><rect x='8' y='21' width='10' height='2' fill='%23C9C2B4'/></svg>">
 <script>
 // Resolve theme + palette before first paint, so a dark-mode user never sees a
@@ -132,6 +134,6 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
