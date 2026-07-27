@@ -20,7 +20,8 @@
     return {
       folders: [], notes: [], tabs: [], active: null,
       collapsed: {}, sideHidden: false,
-      theme: 'auto', palette: 'paper', width: 'normal', size: 'medium'
+      theme: 'auto', palette: 'paper', width: 'normal', size: 'medium',
+      folderSel: null
     };
   }
 
@@ -137,6 +138,7 @@
     };
     db.notes.unshift(n);
     if (folderId) db.collapsed[folderId] = false;
+    db.folderSel = folderId || null;
     openNote(n.id);
     save();
     editor.focus();
@@ -279,8 +281,15 @@
 
   var loading = false;
 
+  // Which note the editor is actually displaying. flush() refuses to write
+  // unless this matches db.active — otherwise any bug that lets the two drift
+  // apart silently overwrites a note with another note's text, which is
+  // unrecoverable here. Belt and braces: the known cause is fixed too.
+  var loadedId = null;
+
   function loadIntoEditor() {
     var n = note(db.active);
+    loadedId = db.active;
     loading = true;
     // Start with a real block so the first line is a paragraph, not loose text.
     editor.innerHTML = n ? (n.html || EMPTY_DOC) : '';
@@ -296,6 +305,7 @@
   function flush() {
     var n = note(db.active);
     if (!n) return;
+    if (loadedId !== db.active) return;   // editor isn't showing this note
     var html = editor.innerHTML;
     if (!editor.textContent.trim() && !editor.querySelector('img, hr')) html = '';
     if (html === n.html) return;
@@ -478,7 +488,10 @@
     row.draggable = true;
     row.appendChild(el('span', 'name', titleOf(n)));
     row.appendChild(rowAction('times', 'Delete note', function () { deleteNote(n.id); }));
-    row.onclick = function () { openNote(n.id); };
+    row.onclick = function () {
+      db.folderSel = n.folderId || null;   // selection follows the note you opened
+      openNote(n.id);
+    };
     row.ondragstart = function (e) {
       e.dataTransfer.setData('text/plain', n.id);
       e.dataTransfer.effectAllowed = 'move';
@@ -493,7 +506,8 @@
 
     db.folders.forEach(function (f) {
       var open = !db.collapsed[f.id];
-      var row = el('div', 'row folder' + (open ? ' open' : ''));
+      var row = el('div', 'row folder' + (open ? ' open' : '') +
+                              (f.id === currentFolder() ? ' selected' : ''));
       row.setAttribute('data-folder', f.id);
       row.appendChild(el('span', 'caret', '▶'));
 
@@ -512,6 +526,7 @@
 
       row.onclick = function () {
         if (renaming) return;   // don't collapse out from under the field
+        db.folderSel = f.id;    // new notes now land here
         db.collapsed[f.id] = open;
         save();
         renderTree();
@@ -548,6 +563,14 @@
       tree.appendChild(el('div', 'empty-hint', 'No notes yet.'));
     }
   }
+
+  // Clicking the empty space below the tree deselects, so the next new note
+  // goes to the top level rather than into whatever was last highlighted.
+  tree.addEventListener('click', function (e) {
+    if (e.target !== tree || renaming) return;
+    selectFolder(null);
+    renderTree();
+  });
 
   function renderTabs() {
     tabsEl.innerHTML = '';
@@ -659,15 +682,22 @@
     if (!mod) return;
     var k = e.key.toLowerCase();
 
-    if (k === 'n' && e.shiftKey) { e.preventDefault(); createNote(activeFolder()); return; }
+    if (k === 'n' && e.shiftKey) { e.preventDefault(); createNote(currentFolder()); return; }
     if (k === 's')               { e.preventDefault(); flush(); save(true); return; }
     if (k === '\\')              { e.preventDefault(); toggleSidebar(); return; }
     if (k === 'w' && e.shiftKey) { e.preventDefault(); if (db.active) closeTab(db.active); return; }
   });
 
-  function activeFolder() {
-    var n = note(db.active);
-    return n ? n.folderId : null;
+  // Where a new note lands: the folder you last clicked in the sidebar, rather
+  // than the folder of whatever note happens to be open. Cleared if that folder
+  // has since been deleted.
+  function currentFolder() {
+    return folder(db.folderSel) ? db.folderSel : null;
+  }
+
+  function selectFolder(id) {
+    db.folderSel = id || null;
+    save();
   }
 
   function toggleSidebar() {
@@ -778,9 +808,9 @@
 
   /* --------------------------------------------------------------- wire */
 
-  $('new-note').onclick    = function () { createNote(activeFolder()); };
+  $('new-note').onclick    = function () { createNote(currentFolder()); };
   $('new-folder').onclick  = createFolder;
-  $('empty-new').onclick   = function () { createNote(null); };
+  $('empty-new').onclick   = function () { createNote(currentFolder()); };
   $('toggle-side').onclick = toggleSidebar;
   $('export').onclick      = exportJSON;
   $('import').onclick      = function () { $('import-file').click(); };

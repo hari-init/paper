@@ -30,6 +30,9 @@ it, saving fails loudly in the word-count line rather than silently losing work.
   it appears — sidebar, tab. No naming dialogs, no `Untitled (3)`.
 - **Tabs** hold what you have open. Closing a tab does not delete the note; the `×` in
   the sidebar does, and asks first.
+- **New notes land in the folder you last clicked**, which is highlighted in the sidebar.
+  Clicking a note selects its folder too; clicking empty space below the tree deselects,
+  so the next note goes to the top level.
 - **Folders** are one level deep, on purpose. Drag a note onto a folder to move it.
   Hovering a folder reveals three actions — new note, rename, delete. Rename edits the
   name in place (double-clicking the folder does the same): `Enter` or clicking away
